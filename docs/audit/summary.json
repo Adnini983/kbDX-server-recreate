@@ -1,0 +1,20 @@
+{
+  "size": 44904769,
+  "version": 21,
+  "stage": "720x500",
+  "fps": 60,
+  "frames": 15,
+  "tags": 12691,
+  "images": 1049,
+  "image_bytes": 36879819,
+  "sounds": 18,
+  "sound_bytes": 2665518,
+  "fonts": 8,
+  "texts": 869,
+  "text_bytes": 34188,
+  "classes": 133,
+  "loc": 19367,
+  "sprites": 167,
+  "shapes": 1306,
+  "buttons": 30
+}

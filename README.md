@@ -17,6 +17,7 @@ python/           Python 3 服务端（标准库）
 tools/patch/      原始 SWF → 4 种修改版 SWF（CLI）
 tools/editors/    题库 / 活动编辑器（GUI，Java + Python）
 docs/banks/       题库副本（中/日，含活动题库与文案）
+docs/audit/       原始 SWF 审计报告与资源清单
 docs/TECHNICAL.md 协议、数据格式、补丁流程、编辑器说明
 .github/workflows/ci.yml
 ```
