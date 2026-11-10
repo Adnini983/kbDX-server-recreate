@@ -1,0 +1,25 @@
+# 编辑器配置示例：复制为 editor_config.properties 后修改路径。
+# 路径可以写绝对路径，也可以写相对于启动目录的相对路径。
+
+# ---- 题库编辑器 ----
+bank.cn=/path/to/build.cn/kbDX/SKR/questions.tsv
+bank.jp=/path/to/build.jp/kbDX/SKR/questions.tsv
+
+# ---- 活动编辑器 ----
+event.bank.cn=/path/to/build.cn/kbDX/SKR/questions_evt.tsv
+event.bank.jp=/path/to/build.jp/kbDX/SKR/questions_evt.tsv
+event.texts.cn=/path/to/build.cn/kbDX/SKR/evt_texts.tsv
+event.texts.jp=/path/to/build.jp/kbDX/SKR/evt_texts.tsv
+
+# ---- SWF（活动编辑器一键重编时使用） ----
+swf.cn=/path/to/build.cn/kbDX/main.swf
+swf.jp=/path/to/build.jp/kbDX/main.swf
+
+# ---- 一键重编流水线（可选；不用该功能可随便填） ----
+rebuild.java=/path/to/java
+rebuild.ffdec=/path/to/ffdec-cli.jar
+rebuild.texttool=/path/to/texttool_classes
+rebuild.textmap=/path/to/text_map.tsv
+rebuild.base=/path/to/base_font_injected.swf
+rebuild.patch=/path/to/patch_scripts
+rebuild.tmp=/tmp/kbdx_rebuild

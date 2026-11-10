@@ -1,0 +1,19 @@
+# binaries / runtime
+*.swf
+*.swf.part*
+*.jar
+*.class
+*.exe
+*.dll
+runtime/
+player/
+build/
+__pycache__/
+*.pyc
+
+# local state
+saves/
+cache/
+logs/
+*.bak
+*.sol

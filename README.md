@@ -1,0 +1,125 @@
+# kbDX Server Recreate
+
+《卡比检定DX》（カービィ検定DX）同人游戏的**服务端重制实现**，提供 Java 与 Python 两套可独立运行的版本，以及一个基于原始 SWF 的补丁工具。
+
+> **声明**
+> 本项目的代码由 **DeepSeek** 编写；需求提示词与测试环境均由用户提供。
+> 项目仅包含服务端与补丁工具源码，**不包含**游戏 SWF、Java/Python 运行时、Ruffle 客户端或任何编译好的 `.jar`。
+
+## 目录
+
+```
+java/             Java 17 服务端（单文件，无第三方依赖）
+  src/            KbdxServer.java
+  kbDX/           数据描述文件与题库
+  server.properties
+python/           Python 3 服务端（标准库）
+tools/patch/      原始 SWF → 4 种修改版 SWF（CLI）
+tools/editors/    题库 / 活动编辑器（GUI，Java + Python）
+docs/banks/       题库副本（中/日，含活动题库与文案）
+docs/TECHNICAL.md 协议、数据格式、补丁流程、编辑器说明
+.github/workflows/ci.yml
+```
+
+## 已实现的功能（仅这些）
+
+| 接口 | 说明 |
+|---|---|
+| `POST /{cn,jp}/kbDX/Qgene.php` | 出题（25 题），支持 choice / ox / typing / order / line / group / multityping |
+| `GET/POST /{cn,jp}/kbDX/SKR/stats.php` | 题目正确率统计 |
+| `POST /{cn,jp}/kbDX/Ranking/RnkList.php` | 排行榜读取 |
+| `POST /{cn,jp}/kbDX/Ranking/RnkSet.php` | 排行榜写入（`分数\t名字\t日期`） |
+| `POST /{cn,jp}/kbDX/T.php` | 服务端时间/令牌占位 |
+| `GET /{cn,jp}/kbDX/evt/DtSet.php` | 活动状态 |
+| `GET /{cn,jp}/kbDX/evt/distred.php` | 活动分发占位 |
+
+**未实现 / 不支持**：文字面板（panel）、联想（renso）、画像タッチ（image）题型；原版中依赖这些题型的活动玩法；以及未在上表出现的接口。
+
+## 快速开始
+
+### Java
+
+需要 JDK 17+（仓库不带运行时）。
+
+```bash
+cd java
+./build.sh        # Windows: build.bat
+./run.sh          # Windows: run.bat
+```
+
+### Python
+
+需要 Python 3.9+。
+
+```bash
+cd python
+./run.sh          # 或 python3 dev_server.py
+```
+
+### 配置
+
+两端同目录的 `server.properties`：
+
+```properties
+server.port=8700      # 本地端口
+server.debug=false    # 跑码模式：打印每个请求
+server.log=false      # 是否写 logs/requests.log
+```
+
+修改后重启服务端生效。文件需为无 BOM 的 UTF-8。
+
+## 题库编辑器 / 活动编辑器（GUI）
+
+`tools/editors/` 提供 Java（Swing）与 Python（Tkinter）两套 GUI 编辑器，界面语言可切换中文 / 日本語：
+
+| 程序 | 作用 |
+|---|---|
+| `QuestionEditor` / `qbank_editor.py` | 题库编辑、校验、统计 |
+| `ActivityEditor` / `activity_editor.py` | 活动题库 + 活动文案 + 一键重编 |
+
+两个编辑器都从同目录的 `editor_config.properties` 读取路径（见 `.example`），代码中不写死路径。
+
+题库参考副本放在 `docs/banks/`（中/日主题库、活动题库、活动文案）。
+
+详见 `tools/editors/README.md`。
+
+## SWF 补丁（命令行程序）
+
+`tools/patch/` 提供 **Python 与 Java 各一个补丁程序，都是 CLI（命令行），没有 GUI**，采用二进制补丁，不需要 FFDec、字体或其他第三方文件。
+
+用户只需提供原始 SWF（SHA-256 `a77cfcf6…`）：
+
+```bash
+# Python（CLI）
+python3 tools/patch/patch_swf.py --original /path/to/main.swf --out ./out
+
+# Java（CLI）
+javac -encoding UTF-8 -d tools/patch/build tools/patch/PatchSwf.java
+java -cp tools/patch/build PatchSwf --original /path/to/main.swf --out ./out
+```
+
+生成：
+
+- `out/jp/full/main.swf`、`out/jp/split/main.swf.partNN`（日文修改版）
+- `out/cn/full/main.swf`、`out/cn/split/main.swf.partNN`（未完全汉化版）
+
+补丁数据在 `tools/patch/data/`，随仓库提供；原始 SWF 需要用户自备。
+
+## CI
+
+`.github/workflows/ci.yml` 在 Ubuntu 上：
+
+1. `javac` 编译 Java 服务端；
+2. `py_compile` 检查 Python；
+3. 启动 Python 服务端并请求 `Qgene.php`；
+4. 启动 Java 服务端并请求 `Qgene.php`。
+
+## Linux / WSL
+
+`java/run.sh`、`python/run.sh` 为 Linux/macOS 脚本，可直接在 WSL2（Ubuntu）中运行。
+
+## 免责
+
+仅供学习与个人研究；游戏原作版权归原作者所有。'请自行准备合法获得的原始 SWF。
+
+仓库**不包含** `public/` 静态资源与 SWF，运行时需自行放置补丁产物。'

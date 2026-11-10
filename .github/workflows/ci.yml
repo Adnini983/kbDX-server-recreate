@@ -1,0 +1,65 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Compile Java server
+        run: |
+          mkdir -p java/build/classes
+          javac -encoding UTF-8 -d java/build/classes java/src/KbdxServer.java
+
+      - name: Compile patch tool (Java)
+        run: |
+          mkdir -p tools/patch/build
+          javac -encoding UTF-8 -d tools/patch/build tools/patch/PatchSwf.java
+
+      - name: Compile editors (Java)
+        run: |
+          mkdir -p tools/editors/java/build
+          javac -encoding UTF-8 -d tools/editors/java/build tools/editors/java/Config.java tools/editors/java/QuestionEditor.java tools/editors/java/ActivityEditor.java
+
+      - name: Python syntax check
+        run: |
+          python -m py_compile python/dev_server.py python/kbdx_core.py python/data_cn.py python/data_jp.py tools/patch/patch_swf.py tools/editors/python/qbank_editor.py tools/editors/python/activity_editor.py
+
+      - name: Python server smoke test
+        working-directory: python
+        run: |
+          sed -i 's/^server.port=.*/server.port=18787/' server.properties
+          python dev_server.py &
+          SERVER_PID=$!
+          for i in $(seq 1 30); do
+            if curl -fsS -o /dev/null http://127.0.0.1:18787/cn/kbDX/Qgene.php -X POST -d 'NUM=1&MOD=0&VER=24'; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:18787/cn/kbDX/Qgene.php -X POST -d 'NUM=1&MOD=0&VER=24' | head -c 120
+          kill $SERVER_PID
+
+      - name: Java server smoke test
+        working-directory: java
+        run: |
+          sed -i 's/^server.port=.*/server.port=18788/' server.properties
+          java -cp build/classes KbdxServer &
+          SERVER_PID=$!
+          for i in $(seq 1 30); do
+            if curl -fsS -o /dev/null http://127.0.0.1:18788/kbDX/Qgene.php -X POST -d 'NUM=1&MOD=0&VER=24'; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:18788/kbDX/Qgene.php -X POST -d 'NUM=1&MOD=0&VER=24' | head -c 120
+          kill $SERVER_PID
