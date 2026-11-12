@@ -17,3 +17,7 @@ cache/
 logs/
 *.bak
 *.sol
+
+# runtime state
+java/data/*/kbDX/state/
+python/public/*/kbDX/state/

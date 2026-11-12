@@ -26,7 +26,7 @@ docs/TECHNICAL.md 协议、数据格式、补丁流程、编辑器说明
 
 | 接口 | 说明 |
 |---|---|
-| `POST /{cn,jp}/kbDX/Qgene.php` | 出题（25 题），支持 choice / ox / typing / order / line / group / multityping |
+| `POST /{cn,jp}/kbDX/Qgene.php` | 出题（25 题）；返回 25 题 + QNs 会话 token + 结尾 token；校验 VER |
 | `GET/POST /{cn,jp}/kbDX/SKR/stats.php` | 题目正确率统计 |
 | `POST /{cn,jp}/kbDX/Ranking/RnkList.php` | 排行榜读取 |
 | `POST /{cn,jp}/kbDX/Ranking/RnkSet.php` | 排行榜写入（`分数\t名字\t日期`） |
@@ -34,7 +34,30 @@ docs/TECHNICAL.md 协议、数据格式、补丁流程、编辑器说明
 | `GET /{cn,jp}/kbDX/evt/DtSet.php` | 活动状态 |
 | `GET /{cn,jp}/kbDX/evt/distred.php` | 活动分发占位 |
 
-**未实现 / 不支持**：文字面板（panel）、联想（renso）、画像タッチ（image）题型；原版中依赖这些题型的活动玩法；以及未在上表出现的接口。
+### 状态说明
+
+| 状态 | 内容 |
+|---|---|
+| 已实现 | Qgene（含 panel/renso/image 字段分支）、T.php、SKRred/SKRset、RnkRed/RnkSet、DtSet、distred |
+| 部分实现 | 活动分数倍率与奖励数据（格式已确认，数值未知）；统计中 hist 数字语义为推断 |
+| 占位/扩展 | `RnkList.php` 为本项目扩展接口；活动文案文件需人工维护 |
+| 未调查 | 原版是否还有其它接口（已扫描 AS3，仅上述调用点） |
+
+### 协议依据
+
+字段映射与参数来自原始 SWF 的调用与解析逻辑，详见 `docs/TECHNICAL.md` 第 3 节：
+
+- `MainTimeline`：Qgene 响应按 `?` 拆分，第 25 项是 QNs；随后 `SKRred` 以 `QNs` 取统计；
+- `リザルト_193`：`RnkRed`/`RnkSet` 响应按 `,` 拆分，只取前两项（排名、总人数）；`DAT` 是分数增量编码；
+- `イベントのリザルト_196`：`DtSet` 成功返回空格；`SKRset` 的 `DAT=QNs|hist`；
+- `イベント開催中_18`：`distred` 返回 101 个逗号字段，第 101 项是活动 ID。
+
+### 测试
+
+```bash
+python tests/protocol_test.py   # 同时验证 Java 与 Python，含字段映射与两端口径一致性
+```
+
 
 ## 快速开始
 

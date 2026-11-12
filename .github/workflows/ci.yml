@@ -36,30 +36,8 @@ jobs:
 
       - name: Python syntax check
         run: |
-          python -m py_compile python/dev_server.py python/kbdx_core.py python/data_cn.py python/data_jp.py tools/patch/patch_swf.py tools/editors/python/qbank_editor.py tools/editors/python/activity_editor.py
+          python -m py_compile python/dev_server.py python/kbdx_core.py python/data_cn.py python/data_jp.py tools/patch/patch_swf.py tools/editors/python/qbank_editor.py tools/editors/python/activity_editor.py tests/protocol_test.py
 
-      - name: Python server smoke test
-        working-directory: python
+      - name: Protocol tests (Java + Python)
         run: |
-          sed -i 's/^server.port=.*/server.port=18787/' server.properties
-          python dev_server.py &
-          SERVER_PID=$!
-          for i in $(seq 1 30); do
-            if curl -fsS -o /dev/null http://127.0.0.1:18787/cn/kbDX/Qgene.php -X POST -d 'NUM=1&MOD=0&VER=24'; then break; fi
-            sleep 1
-          done
-          curl -fsS http://127.0.0.1:18787/cn/kbDX/Qgene.php -X POST -d 'NUM=1&MOD=0&VER=24' | head -c 120
-          kill $SERVER_PID
-
-      - name: Java server smoke test
-        working-directory: java
-        run: |
-          sed -i 's/^server.port=.*/server.port=18788/' server.properties
-          java -cp build/classes KbdxServer &
-          SERVER_PID=$!
-          for i in $(seq 1 30); do
-            if curl -fsS -o /dev/null http://127.0.0.1:18788/kbDX/Qgene.php -X POST -d 'NUM=1&MOD=0&VER=24'; then break; fi
-            sleep 1
-          done
-          curl -fsS http://127.0.0.1:18788/kbDX/Qgene.php -X POST -d 'NUM=1&MOD=0&VER=24' | head -c 120
-          kill $SERVER_PID
+          python tests/protocol_test.py

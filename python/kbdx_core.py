@@ -1,10 +1,16 @@
 # -*- coding: utf-8 -*-
-"""Cloudflare Workers Python 版的接口逻辑（纯 Python，可在本地 CPython 测试）。"""
+"""kbDX 服务端协议实现（Python，Java 端与之一致）。
 
+协议依据：原始 SWF 中 MainTimeline / リザルト / イベント 的调用与解析逻辑。
+"""
+
+import hashlib
 import random
+import time
 from urllib.parse import parse_qs
 
 CHRS = "1BU8kTlE6dZ9.Dz-Afe2gF5hvi4wOmjq3xpuGIXsJL7cMrRSnN0CKoPyHbVtQaY_W"
+VER = 24
 
 KIND_TYPE = {
     "ox": 1, "choice": 2, "renso": 3, "panel": 5, "typing": 7,
@@ -17,6 +23,13 @@ def encode65(s):
     for ch in s:
         v = ord(ch)
         out.append(CHRS[v // 4225] + CHRS[(v // 65) % 65] + CHRS[v % 65])
+    return "".join(out)
+
+
+def decode65(s):
+    out = []
+    for i in range(0, len(s) - 2, 3):
+        out.append(chr(CHRS.index(s[i]) * 4225 + CHRS.index(s[i + 1]) * 65 + CHRS.index(s[i + 2])))
     return "".join(out)
 
 
@@ -67,7 +80,17 @@ def _blank0(s):
     return s.strip() if s and s.strip() else "0"
 
 
-def build_qgene(bank_text, mod, p, count=25):
+def qkey(row):
+    raw = "\t".join(row[:4])
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def new_token(n=8):
+    return "".join(random.choice(CHRS) for _ in range(n))
+
+
+def build_qgene(bank_text, mod, p, count, qns):
+    """返回 (响应文本, 题目 key 列表)。"""
     rows = []
     for line in bank_text.splitlines():
         if not line.strip() or line.startswith("#"):
@@ -76,8 +99,6 @@ def build_qgene(bank_text, mod, p, count=25):
         if len(cols) < 4:
             continue
         rows.append(cols)
-    if mod >= 3 and p.get("evtdata"):
-        pass  # 由调用方决定用哪个题库文本
     pool = []
     for q in rows:
         try:
@@ -100,9 +121,9 @@ def build_qgene(bank_text, mod, p, count=25):
 
     author = p.get("author", "管理人")
     date = p.get("date", "2026/11/08")
+    use = [pool[i % len(pool)] if pool else ["choice", "1", "（无题目）", "（空）", ""] for i in range(count)]
     out = []
-    for i in range(count):
-        q = pool[i % len(pool)] if pool else ["choice", "1", "（无题目）", "（空）", ""]
+    for q in use:
         kind = q[0].strip().lower()
         qtype = KIND_TYPE.get(kind, 2)
         try:
@@ -119,8 +140,7 @@ def build_qgene(bank_text, mod, p, count=25):
         elif kind == "renso":
             d1 = (c3 + "||" + _wrongs(c4)).rstrip("|")
         elif kind == "panel":
-            d1 = c4
-            d2 = c3
+            d1, d2 = c4, c3
             d3 = "0"
             if e2.startswith("res/"):
                 d4 = e2
@@ -164,39 +184,70 @@ def build_qgene(bank_text, mod, p, count=25):
             encode65(author), encode65(date), encode65(text),
             encode65(d1), encode65(d2), encode65(d3), encode65(d4),
         ]))
-    return "?".join(out) + "?" + p.get("qns", "DX2026") + "?" + p.get("token", "1")
+    return "?".join(out) + "?" + qns + "?" + p.get("token", "1"), [qkey(q) for q in use]
 
 
-def build_stats(stats_text):
-    rows = []
-    for line in stats_text.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
+def parse_kv(text):
+    """session/统计存储：key<TAB>value。"""
+    d = {}
+    for line in str(text or "").splitlines():
+        if "\t" in line:
+            k, v = line.split("\t", 1)
+            d[k] = v
+    return d
+
+
+def dump_kv(d):
+    return "\n".join("%s\t%s" % (k, v) for k, v in d.items())
+
+
+def load_stats(raw):
+    stats = {}
+    for k, v in parse_kv(raw).items():
+        parts = v.split(",")
+        try:
+            stats[k] = [int(parts[0]), int(parts[1]), int(parts[2]) if len(parts) > 2 else 0]
+        except Exception:
+            stats[k] = [0, 0, 0]
+    return stats
+
+
+def save_stats(stats):
+    return dump_kv({k: "%d,%d,%d" % tuple(v) for k, v in stats.items()})
+
+
+def decode_hist(enc):
+    digits = []
+    for ch in enc:
+        if ch not in CHRS:
             continue
-        parts = line.split(",")
-        if len(parts) >= 2:
-            rows.append(parts[0].strip() + "," + parts[1].strip() + ",0")
-    if not rows:
-        rows = ["1000,600,0"]
-    return "|".join(rows[i % len(rows)] for i in range(25))
+        idx = CHRS.index(ch)
+        digits.extend([idx // 16, (idx // 4) % 4, idx % 4])
+    return digits
 
 
-def ranking(scores, scr):
-    if scr and scr > 0:
-        scores.append(scr)
-    total = max(1, len(scores))
-    top = 80000
+def decode_score(dat, token_len):
+    """DAT = 分数增量（2 字符/个）+ 活动标志(1) + token。"""
+    body = dat[:-(1 + token_len)] if len(dat) > 1 + token_len else dat
+    total = 0
+    for i in range(0, len(body) - 1, 2):
+        a, b = body[i], body[i + 1]
+        if a in CHRS and b in CHRS:
+            total += CHRS.index(a) * 65 + CHRS.index(b)
+    return total
+
+
+def ranking_result(recs, scr=None):
+    scores = [r["score"] for r in recs]
+    total = len(scores)
     rank = 1
-    for s in scores:
-        if s > top:
-            top = s
-        if scr and scr > 0 and s > scr:
-            rank += 1
-    return "%d,%d,%d" % (max(1, rank), total, top), scores
+    if scr is not None and scr > 0:
+        rank = 1 + sum(1 for s in scores if s > scr)
+        total = max(total, 1)
+    return max(1, rank), max(1, total)
 
 
 def parse_records(raw):
-    """把存储内容解析成 [{score,name,date}]；兼容纯数字行。"""
     recs = []
     for line in str(raw or "").splitlines():
         parts = line.split("\t")
@@ -228,18 +279,40 @@ def records_json(recs, limit=50):
     return '{"total": %d, "top": %d, "scores": [%s]}' % (total, top, items)
 
 
-def event_data(p):
-    try:
-        ev = int(p.get("eventid", "3"))
-    except Exception:
-        ev = 3
+def _now():
+    return time.strftime("%Y/%m/%d")
+
+
+def event_rows(text):
+    rows = []
+    for line in str(text or "").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        p = line.split("\t")
+        if len(p) < 3:
+            continue
+        rows.append(p)
+    return rows
+
+
+def active_event(text, today):
+    for p in event_rows(text):
+        if p[1] <= today <= p[2]:
+            mult = p[3].split(",") if len(p) > 3 else []
+            return p[0], mult
+    return None, []
+
+
+def event_payload(event_id, mult):
     arr = ["0"] * 101
-    arr[100] = str(ev)
+    for i, v in enumerate(mult[:100]):
+        arr[i] = v.strip() or "0"
+    arr[100] = str(event_id)
     return ",".join(arr)
 
 
 def parse_body(body):
-    """解析 application/x-www-form-urlencoded。"""
     try:
         q = parse_qs(body or "", keep_blank_values=True)
         return {k: v[0] for k, v in q.items()}
@@ -248,78 +321,130 @@ def parse_body(body):
 
 
 def handle(lang, path, method, body, data, storage):
-    """data: dict(relpath->text)；storage: dict 提供 get/set。
-
-    返回 (status, content_type, text) 或 None（表示静态文件）。
-    """
+    """返回 (status, content_type, text) 或 None（静态文件）。"""
     root = "/" + lang + "/kbDX/"
     if not path.startswith(root):
         return None
     rel = path[len(root):]
-    name = rel.lower()
-    if not name.endswith(".php"):
+    if not rel.lower().endswith(".php"):
         return None
     params = parse_body(body)
 
     def text(p):
         return data.get(lang + "/kbDX/" + p, "")
 
+    def get(key):
+        return storage.get(lang + ":" + key) if storage else None
+
+    def put(key, val):
+        if storage:
+            storage.set(lang + ":" + key, val)
+
     try:
+        p = props(text(rel))
+
         if rel == "T.php":
-            return 200, "text/plain; charset=utf-8", props(text("T.php")).get("body", "1")
+            players = set()
+            for r in parse_records(get("scores") or text("Ranking/scores.txt")):
+                if r["name"]:
+                    players.add(r["name"])
+            return 200, "text/plain; charset=utf-8", str(len(players))
+
         if rel == "Qgene.php":
-            p = props(text("Qgene.php"))
+            if p.get("maintenance") == "1":
+                return 200, "text/plain; charset=utf-8", "M"
+            if params.get("VER") and params["VER"].strip() != str(p.get("ver", VER)):
+                return 200, "text/plain; charset=utf-8", "V"
             try:
                 mod = int(params.get("MOD", "1"))
             except Exception:
                 mod = 1
             bank = text(p.get("evtdata", "SKR/questions.tsv")) if mod >= 3 and p.get("evtdata") else text(p.get("data", "SKR/questions.tsv"))
-            if mod >= 3 and p.get("evtdata"):
-                bank = text(p["evtdata"])
             try:
                 count = int(p.get("count", "25"))
             except Exception:
                 count = 25
-            return 200, "text/plain; charset=utf-8", build_qgene(bank, mod, p, count)
+            qns = new_token()
+            resp, keys = build_qgene(bank, mod, p, count, qns)
+            sessions = parse_kv(get("sessions"))
+            sessions[qns] = ",".join(keys)
+            put("sessions", dump_kv(sessions))
+            return 200, "text/plain; charset=utf-8", resp
+
         if rel == "SKR/SKRred.php":
-            p = props(text("SKR/SKRred.php"))
-            return 200, "text/plain; charset=utf-8", build_stats(text(p.get("data", "stats.tsv")))
+            qns = params.get("QNs", "").strip()
+            keys = parse_kv(get("sessions")).get(qns, "")
+            if not keys:
+                return 200, "text/plain; charset=utf-8", " "
+            stats = load_stats(get("stats"))
+            out = []
+            for k in keys.split(","):
+                m, c, pf = stats.get(k, [0, 0, 0])
+                out.append("%d,%d" % (m, pf * 10000 + c))
+            return 200, "text/plain; charset=utf-8", "|".join(out)
+
+        if rel == "SKR/SKRset.php":
+            dat = params.get("DAT", "")
+            if "|" not in dat:
+                return 200, "text/plain; charset=utf-8", " "
+            qns, enc = dat.split("|", 1)
+            keys = parse_kv(get("sessions")).get(qns, "")
+            if not keys:
+                return 200, "text/plain; charset=utf-8", " "
+            digits = decode_hist(enc)
+            stats = load_stats(get("stats"))
+            for i, k in enumerate(keys.split(",")):
+                d = digits[i] if i < len(digits) else 0
+                m, c, pf = stats.get(k, [0, 0, 0])
+                m += 1
+                if d >= 2:
+                    c += 1
+                if d == 3:
+                    pf += 1
+                stats[k] = [m, min(c, 9999), pf]
+            put("stats", save_stats(stats))
+            return 200, "text/plain; charset=utf-8", " "
+
         if rel == "Ranking/RnkList.php":
-            key = lang + ":scores"
-            raw = storage.get(key) if storage else None
-            if raw is None:
-                raw = text("Ranking/scores.txt")
+            raw = get("scores") or text("Ranking/scores.txt")
             return 200, "application/json; charset=utf-8", records_json(parse_records(raw))
 
-        if rel in ("Ranking/RnkRed.php", "Ranking/RnkSet.php"):
-            key = lang + ":scores"
-            raw = storage.get(key) if storage else None
-            if raw is None:
-                raw = text("Ranking/scores.txt")
+        if rel == "Ranking/RnkRed.php":
+            raw = get("scores") or text("Ranking/scores.txt")
             recs = parse_records(raw)
-            scr = 0
-            if params.get("SCR", "").isdigit():
-                scr = int(params["SCR"])
-            if rel.endswith("RnkSet.php") and scr > 0 and params.get("NAM") is not None:
-                recs.append({"score": scr, "name": params.get("NAM", ""), "date": params.get("DAT", "")})
-                if storage is not None:
-                    storage.set(key, records_text(recs))
-            scores = [r["score"] for r in recs]
-            total = max(1, len(scores))
-            top = 80000
-            rank = 1
-            for sc in scores:
-                if sc > top:
-                    top = sc
-                if scr > 0 and sc > scr:
-                    rank += 1
-            return 200, "text/plain; charset=utf-8", "%d,%d,%d" % (max(1, rank), total, top)
-        if rel.startswith("evt/"):
-            p = props(text(rel))
-            if p.get("type") == "event":
-                return 200, "text/plain; charset=utf-8", event_data(p)
-            return 200, "text/plain; charset=utf-8", p.get("body", " ")
-        p = props(text(rel))
+            scr = None
+            try:
+                scr = int(params.get("SCR", ""))
+            except Exception:
+                scr = None
+            rank, total = ranking_result(recs, scr)
+            return 200, "text/plain; charset=utf-8", "%d,%d" % (rank, total)
+
+        if rel == "Ranking/RnkSet.php":
+            raw = get("scores") or text("Ranking/scores.txt")
+            recs = parse_records(raw)
+            nam = params.get("NAM", "").strip()
+            dat = params.get("DAT", "")
+            score = decode_score(dat, len(p.get("token", "1")))
+            if nam and score > 0:
+                recs.append({"score": score, "name": nam[:24], "date": _now()})
+                put("scores", records_text(recs))
+            rank, total = ranking_result(recs)
+            return 200, "text/plain; charset=utf-8", "%d,%d" % (rank, total)
+
+        if rel == "evt/distred.php":
+            ev_id, mult = active_event(text("evt/events.tsv"), _now())
+            if ev_id is None:
+                return 200, "text/plain; charset=utf-8", " "
+            return 200, "text/plain; charset=utf-8", event_payload(ev_id, mult)
+
+        if rel == "evt/DtSet.php":
+            ent = parse_kv(get("entries"))
+            key = new_token(10)
+            ent[key] = "%s\t%s\t%s" % (params.get("NAM", ""), params.get("DAT", ""), _now())
+            put("entries", dump_kv(ent))
+            return 200, "text/plain; charset=utf-8", " "
+
         return 200, "text/plain; charset=utf-8", p.get("body", " ")
     except Exception:
         return 200, "text/plain; charset=utf-8", " "

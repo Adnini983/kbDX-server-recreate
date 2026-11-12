@@ -11,6 +11,7 @@ import http.server
 import os
 import socketserver
 import sys
+import threading
 from urllib.parse import urlparse
 
 import kbdx_core
@@ -62,38 +63,49 @@ DATA.update(data_cn.DATA)
 DATA.update(data_jp.DATA)
 
 _STORE = {}
+_LOCK = threading.Lock()
 
 
 class Store:
-    """按语言隔离的持久化存储：cn:scores -> public/cn/kbDX/Ranking/scores.txt"""
+    """按语言隔离的持久化存储（文件 + 进程内缓存）。
+
+    key 形如 cn:scores / cn:sessions / cn:stats / cn:entries。
+    scores 存到 Ranking/scores.txt，其余存到 state/<name>.txt。
+    """
 
     def _path(self, key):
-        lang = key.split(":", 1)[0]
-        return os.path.join(ROOT, "public", lang, "kbDX", "Ranking", "scores.txt")
+        lang, name = key.split(":", 1)
+        if name == "scores":
+            return os.path.join(ROOT, "public", lang, "kbDX", "Ranking", "scores.txt")
+        return os.path.join(ROOT, "public", lang, "kbDX", "state", name + ".txt")
 
     def get(self, key):
-        if key in _STORE:
-            return _STORE[key]
-        p = self._path(key)
-        if os.path.isfile(p):
-            try:
-                with open(p, "r", encoding="utf-8") as f:
-                    v = f.read()
-                _STORE[key] = v
-                return v
-            except Exception:
-                return None
-        return None
+        with _LOCK:
+            if key in _STORE:
+                return _STORE[key]
+            p = self._path(key)
+            if os.path.isfile(p):
+                try:
+                    with open(p, "r", encoding="utf-8") as f:
+                        v = f.read()
+                    _STORE[key] = v
+                    return v
+                except Exception:
+                    return None
+            return None
 
     def set(self, key, value):
-        _STORE[key] = value
-        p = self._path(key)
-        try:
-            os.makedirs(os.path.dirname(p), exist_ok=True)
-            with open(p, "w", encoding="utf-8") as f:
-                f.write(value)
-        except Exception:
-            pass
+        with _LOCK:
+            _STORE[key] = value
+            p = self._path(key)
+            try:
+                os.makedirs(os.path.dirname(p), exist_ok=True)
+                tmp = p + ".tmp"
+                with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+                    f.write(value)
+                os.replace(tmp, p)
+            except Exception:
+                pass
 
 
 STORE = Store()
