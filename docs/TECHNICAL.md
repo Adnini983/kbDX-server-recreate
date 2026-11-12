@@ -19,6 +19,21 @@
 
 Java 从**当前工作目录**读取；Python 从脚本目录或当前目录读取。缺文件或缺少 `server.port` 时启动失败。
 
+## 2b. 语言隔离
+
+| 层 | 机制 |
+|---|---|
+| 请求 | SWF 全部使用相对路径（`Qgene.php` 等），语言 = SWF 所在目录 |
+| 路由 | Java/Python 都只接受 `/{cn,jp}/kbDX/` 前缀，其他路径拒绝 |
+| 数据 | Java：`data/cn`、`data/jp` 独立目录；Python：`DATA` 以 `cn/`、`jp/` 为键 |
+| 状态 | 排行、统计、会话按语言分文件/分键 |
+| 防御 | 请求若带 `LANG=cn|jp` 且与路径不符，直接返回空格（为补丁版 SWF 预留） |
+| 自检 | 启动时检查两份题库是否存在、SHA-256 是否相同并告警 |
+| 测试 | `tests/protocol_test.py` 覆盖标记隔离、会话隔离、排行隔离、LANG 校验 |
+
+**已知限制**：服务端无法判断 SWF 是否被放错目录；这只能通过部署规范或让 SWF 携带
+`LANG` 参数解决。
+
 ## 3. Qgene 协议
 
 请求：`POST /cn/kbDX/Qgene.php`，`application/x-www-form-urlencoded`

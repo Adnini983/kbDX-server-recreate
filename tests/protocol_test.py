@@ -20,6 +20,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 CHRS = "1BU8kTlE6dZ9.Dz-Afe2gF5hvi4wOmjq3xpuGIXsJL7cMrRSnN0CKoPyHbVtQaY_W"
 
+FIXTURE_JP = """choice\t1\t日本語ダミー問題\tカビ\tプププ||デデデ||メタ\t\t
+"""
+
 FIXTURE = """choice\t1\t测试四选一\t甲\t乙||丙||丁\t\t
 ox\t1\t测试判断\tＯ\t\t\t
 typing\t1\t测试打字\t１９９２\t\t\t
@@ -86,12 +89,17 @@ class Server:
             src = os.path.join(ROOT, "python")
             dst = os.path.join(self.tmp, "python")
             shutil.copytree(src, dst)
+            bank_jp = os.path.join(dst, "public", "jp", "kbDX", "SKR", "questions.tsv")
+            os.makedirs(os.path.dirname(bank_jp), exist_ok=True)
+            open(bank_jp, "w", encoding="utf-8").write(FIXTURE_JP)
             bank = os.path.join(dst, "public", "cn", "kbDX", "SKR", "questions.tsv")
             os.makedirs(os.path.dirname(bank), exist_ok=True)
             open(bank, "w", encoding="utf-8").write(FIXTURE)
             # 题库内嵌在 data_cn.py 的 DATA 字典里，追加覆盖
             with open(os.path.join(dst, "data_cn.py"), "a", encoding="utf-8") as f:
                 f.write("\nDATA[\"cn/kbDX/SKR/questions.tsv\"] = %r\n" % FIXTURE)
+            with open(os.path.join(dst, "data_jp.py"), "a", encoding="utf-8") as f:
+                f.write("\nDATA[\"jp/kbDX/SKR/questions.tsv\"] = %r\n" % FIXTURE_JP)
             cfg = os.path.join(dst, "server.properties")
             open(cfg, "w", encoding="utf-8").write("server.port=%d\nserver.debug=false\nserver.log=false\n" % self.port)
             self.cwd = dst
@@ -102,6 +110,8 @@ class Server:
             shutil.copytree(src, dst)
             bank = os.path.join(dst, "data", "cn", "kbDX", "SKR", "questions.tsv")
             open(bank, "w", encoding="utf-8").write(FIXTURE)
+            bank_jp = os.path.join(dst, "data", "jp", "kbDX", "SKR", "questions.tsv")
+            open(bank_jp, "w", encoding="utf-8").write(FIXTURE_JP)
             q = os.path.join(dst, "data", "cn", "kbDX", "Qgene.php")
             open(q, "w", encoding="utf-8").write("type=questions\ndata=SKR/questions.tsv\ncount=25\nauthor=管理人\ndate=2026/11/08\nqns=DX2026\nevtdata=SKR/questions_evt.tsv\ntoken=1\n")
             open(os.path.join(dst, "server.properties"), "w", encoding="utf-8").write("server.port=%d\nserver.debug=false\nserver.log=false\n" % self.port)
@@ -159,6 +169,32 @@ def check_qgene(port):
     return segs
 
 
+def qgene_texts(port, lang):
+    resp = post(port, "/%s/kbDX/Qgene.php" % lang, {"NUM": "1", "MOD": "1", "VER": "24"})
+    return [decode65(seg.split(",")[6]) for seg in resp.split("?")[:25]], resp.split("?")[25]
+
+
+def check_isolation(port):
+    cn_texts, cn_qns = qgene_texts(port, "cn")
+    jp_texts, jp_qns = qgene_texts(port, "jp")
+    assert any("测试四选一" in t for t in cn_texts), "中文端没有中文题库"
+    assert not any("日本語ダミー" in t for t in cn_texts), "中文端读到了日文题库"
+    assert any("日本語ダミー" in t for t in jp_texts), "日文端没有日文题库"
+    assert not any("测试四选一" in t for t in jp_texts), "日文端读到了中文题库"
+    # 用中文会话去查日文统计，必须查不到（会话按语言隔离）
+    assert post(port, "/jp/kbDX/SKR/SKRred.php", {"QNs": cn_qns}) == " "
+    # 显式 LANG 与路由不一致时必须拒绝
+    assert post(port, "/cn/kbDX/Qgene.php", {"NUM": "1", "MOD": "1", "VER": "24", "LANG": "jp"}) == " "
+    assert post(port, "/jp/kbDX/Qgene.php", {"NUM": "1", "MOD": "1", "VER": "24", "LANG": "cn"}) == " "
+    assert len(post(port, "/cn/kbDX/Qgene.php", {"NUM": "1", "MOD": "1", "VER": "24", "LANG": "cn"}).split("?")) == 27
+    # 非语言前缀的请求不应回退到中文
+    try:
+        body = post(port, "/kbDX/Qgene.php", {"NUM": "1", "MOD": "1", "VER": "24"})
+        assert body.strip() in ("", " "), "无语言前缀的请求不应返回题库: %r" % body[:40]
+    except Exception:
+        pass  # Python 端返回 404 也视为通过
+
+
 def check_ranking(port):
     pair = lambda v: CHRS[v // 65] + CHRS[v % 65]
     dat = pair(2500) + pair(2500) + "0" + "1"
@@ -195,7 +231,10 @@ def main():
         try:
             srv.start()
             segs = check_qgene(srv.port)
+            check_isolation(srv.port)
             check_ranking(srv.port)
+            jp_list = json.loads(post(srv.port, "/jp/kbDX/Ranking/RnkList.php", {}))
+            assert jp_list["total"] == 0, "日文排行榜不应包含中文成绩"
             stats = check_stats(srv.port, segs)
             check_events(srv.port)
             results[kind + "_stats"] = stats

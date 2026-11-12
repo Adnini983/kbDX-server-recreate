@@ -62,6 +62,23 @@ DATA = {}
 DATA.update(data_cn.DATA)
 DATA.update(data_jp.DATA)
 
+
+def _self_check():
+    import hashlib
+    banks = {}
+    for lang in ("cn", "jp"):
+        key = lang + "/kbDX/SKR/questions.tsv"
+        text = DATA.get(key, "")
+        if not text:
+            sys.stderr.write("[warn] 缺少 %s 题库\n" % lang)
+            continue
+        banks[lang] = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    if len(banks) == 2 and banks["cn"] == banks["jp"]:
+        sys.stderr.write("[warn] cn/jp 题库内容相同，请检查部署\n")
+
+
+_self_check()
+
 _STORE = {}
 _LOCK = threading.Lock()
 

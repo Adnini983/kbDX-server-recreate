@@ -30,11 +30,29 @@ public class KbdxServer {
     public static void main(String[] a) throws Exception {
         loadConfig();
         root = Paths.get(".").toAbsolutePath().normalize();
+        selfCheck();
         HttpServer s = HttpServer.create(new InetSocketAddress("127.0.0.1", PORT), 0);
         s.createContext("/", KbdxServer::handle);
         s.setExecutor(Executors.newFixedThreadPool(8));
         s.start();
         System.out.println("kbDX server on " + PORT + " root=" + root + " debug=" + DEBUG + " log=" + LOGFILE);
+    }
+
+    static void selfCheck() {
+        try {
+            Path cn = root.resolve("data/cn/kbDX/SKR/questions.tsv");
+            Path jp = root.resolve("data/jp/kbDX/SKR/questions.tsv");
+            if (!Files.isRegularFile(cn)) System.err.println("[warn] 缺少 data/cn 题库");
+            if (!Files.isRegularFile(jp)) System.err.println("[warn] 缺少 data/jp 题库");
+            if (Files.isRegularFile(cn) && Files.isRegularFile(jp)) {
+                MessageDigest md = MessageDigest.getInstance("SHA-256");
+                String a = Arrays.toString(md.digest(Files.readAllBytes(cn)));
+                String b = Arrays.toString(md.digest(Files.readAllBytes(jp)));
+                if (a.equals(b)) System.err.println("[warn] cn/jp 题库内容相同，请检查部署");
+            }
+        } catch (Exception e) {
+            System.err.println("[warn] 题库自检失败: " + e);
+        }
     }
 
     static void loadConfig() throws Exception {
@@ -66,17 +84,22 @@ public class KbdxServer {
             String prefix = null;
             if (path.startsWith("/cn/kbDX/")) { lang = "cn"; prefix = "/cn/kbDX/"; }
             else if (path.startsWith("/jp/kbDX/")) { lang = "jp"; prefix = "/jp/kbDX/"; }
-            if (prefix != null) {
-                rel = path.substring(prefix.length());
-                base = root.resolve("data").resolve(lang).resolve("kbDX");
-            } else {
-                rel = path.startsWith("/") ? path.substring(1) : path;
-                base = root;
+            if (prefix == null) {
+                // 只接受 /cn/kbDX/... 或 /jp/kbDX/...，避免跨语言回退
+                send(ex, " ");
+                return;
             }
+            rel = path.substring(prefix.length());
+            base = root.resolve("data").resolve(lang).resolve("kbDX");
             Path f = base.resolve(rel).normalize();
             if (!f.startsWith(base) || !Files.isRegularFile(f)) {
                 if (rel.toLowerCase(Locale.ROOT).endsWith(".php")) { send(ex, " "); return; }
                 send(ex, " "); return;
+            }
+            String wantLang = param(body, "LANG");
+            if (wantLang != null && !wantLang.trim().isEmpty() && !wantLang.trim().equalsIgnoreCase(lang)) {
+                send(ex, " ");
+                return;
             }
             Map<String, String> p = props(f);
             String kind = rel.toLowerCase(Locale.ROOT);

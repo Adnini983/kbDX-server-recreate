@@ -329,6 +329,9 @@ def handle(lang, path, method, body, data, storage):
     if not rel.lower().endswith(".php"):
         return None
     params = parse_body(body)
+    want = params.get("LANG", "").strip().lower()
+    if want and want != lang:
+        return 200, "text/plain; charset=utf-8", " "
 
     def text(p):
         return data.get(lang + "/kbDX/" + p, "")
