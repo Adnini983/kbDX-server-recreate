@@ -63,6 +63,29 @@ DATA.update(data_cn.DATA)
 DATA.update(data_jp.DATA)
 
 
+def _load_banks_override():
+    """发布包/本地编辑：若 banks/ 下存在 TSV，则覆盖内嵌题库。"""
+    banks = os.path.join(ROOT, "banks")
+    if not os.path.isdir(banks):
+        return
+    mapping = {
+        "questions_cn.tsv": "cn/kbDX/SKR/questions.tsv",
+        "questions_jp.tsv": "jp/kbDX/SKR/questions.tsv",
+        "questions_evt_cn.tsv": "cn/kbDX/SKR/questions_evt.tsv",
+        "questions_evt_jp.tsv": "jp/kbDX/SKR/questions_evt.tsv",
+        "evt_texts_cn.tsv": "cn/kbDX/SKR/evt_texts.tsv",
+        "evt_texts_jp.tsv": "jp/kbDX/SKR/evt_texts.tsv",
+    }
+    for fn, key in mapping.items():
+        p = os.path.join(banks, fn)
+        if os.path.isfile(p):
+            with open(p, encoding="utf-8") as f:
+                DATA[key] = f.read()
+
+
+_load_banks_override()
+
+
 def _self_check():
     import hashlib
     banks = {}
@@ -237,7 +260,23 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 def main():
     socketserver.TCPServer.allow_reuse_address = True
-    with socketserver.TCPServer(("127.0.0.1", PORT), Handler) as httpd:
+    import socket as _socket
+    _port_probe = _socket.socket()
+    try:
+        _port_probe.bind(("127.0.0.1", PORT))
+    except OSError:
+        sys.stderr.write("[error] 端口 %d 已被占用。\n" % PORT)
+        sys.stderr.write("        请关闭已在运行的服务端，或修改 server.properties 里的 server.port 后重试。\n")
+        raise SystemExit(3)
+    finally:
+        _port_probe.close()
+    try:
+        httpd = socketserver.TCPServer(("127.0.0.1", PORT), Handler)
+    except OSError:
+        sys.stderr.write("[error] 端口 %d 已被占用。\n" % PORT)
+        sys.stderr.write("        请关闭已在运行的服务端，或修改 server.properties 里的 server.port 后重试。\n")
+        raise SystemExit(3)
+    with httpd:
         print("kbDX cfworkers dev server: http://127.0.0.1:%d/" % PORT)
         print("  中文: http://127.0.0.1:%d/cn/" % PORT)
         print("  日文: http://127.0.0.1:%d/jp/" % PORT)

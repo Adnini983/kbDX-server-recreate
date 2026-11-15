@@ -16,7 +16,9 @@ _CFG_NAME = "editor_config.properties"
 
 def _find_cfg():
     here = _os.path.dirname(_os.path.abspath(__file__))
-    for c in (_os.path.join(here, _CFG_NAME), _os.path.join(_os.getcwd(), _CFG_NAME)):
+    for c in (_os.path.join(here, _CFG_NAME),
+              _os.path.join(_os.getcwd(), _CFG_NAME),
+              _os.path.abspath(_os.path.join(here, "..", "..", _CFG_NAME))):
         if _os.path.exists(c):
             return c
     return _os.path.join(here, _CFG_NAME)
@@ -35,6 +37,10 @@ def _load_cfg():
                 continue
             k, v = line.split("=", 1)
             d[k.strip()] = v.strip()
+    base = _os.path.dirname(p)
+    for k, v in list(d.items()):
+        if v and not _os.path.isabs(v):
+            d[k] = _os.path.normpath(_os.path.join(base, v))
     return d
 
 

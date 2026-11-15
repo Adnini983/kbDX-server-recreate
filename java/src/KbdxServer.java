@@ -31,7 +31,15 @@ public class KbdxServer {
         loadConfig();
         root = Paths.get(".").toAbsolutePath().normalize();
         selfCheck();
-        HttpServer s = HttpServer.create(new InetSocketAddress("127.0.0.1", PORT), 0);
+        HttpServer s;
+        try {
+            s = HttpServer.create(new InetSocketAddress("127.0.0.1", PORT), 0);
+        } catch (java.io.IOException e) {
+            System.err.println("[error] 端口 " + PORT + " 已被占用。");
+            System.err.println("       请关闭已在运行的服务端，或修改 server.properties 里的 server.port 后重试。");
+            System.exit(3);
+            return;
+        }
         s.createContext("/", KbdxServer::handle);
         s.setExecutor(Executors.newFixedThreadPool(8));
         s.start();
@@ -96,13 +104,17 @@ public class KbdxServer {
                 if (rel.toLowerCase(Locale.ROOT).endsWith(".php")) { send(ex, " "); return; }
                 send(ex, " "); return;
             }
+            String kind = rel.toLowerCase(Locale.ROOT);
+            if (!kind.endsWith(".php")) {
+                sendFile(ex, f);
+                return;
+            }
             String wantLang = param(body, "LANG");
             if (wantLang != null && !wantLang.trim().isEmpty() && !wantLang.trim().equalsIgnoreCase(lang)) {
                 send(ex, " ");
                 return;
             }
             Map<String, String> p = props(f);
-            String kind = rel.toLowerCase(Locale.ROOT);
             if (kind.equals("t.php")) { send(ex, tCount(base)); return; }
             if (kind.equals("qgene.php")) { send(ex, qgene(base, p, body)); return; }
             if (kind.equals("skr/skrred.php")) { send(ex, skrred(base, body)); return; }
@@ -112,7 +124,6 @@ public class KbdxServer {
             if (kind.equals("ranking/rnkset.php")) { send(ex, rnkSet(base, body, p)); return; }
             if (kind.equals("evt/distred.php")) { send(ex, distred(base)); return; }
             if (kind.equals("evt/dtset.php")) { send(ex, dtSet(base, body)); return; }
-            if (!kind.endsWith(".php")) { sendFile(ex, f); return; }
             send(ex, p.getOrDefault("body", " "));
         } catch (Exception e) {
             if (DEBUG) e.printStackTrace();
@@ -288,7 +299,7 @@ public class KbdxServer {
                     if (e1.startsWith("res/")) { d2 = "0"; d4 = e1; } else d2 = blank0(e1);
                     break;
                 case "line": d1 = c3; d2 = c4; break;
-                case "order": d1 = c3.replace("||", "/"); d2 = blank0(e1); break;
+                case "order": d1 = c3; d2 = blank0(e1); break;
                 case "group": d1 = c3; d2 = c4; d3 = e1; break;
                 case "multityping":
                     d1 = c3.replace("||", "/"); d2 = blank0(e1);
