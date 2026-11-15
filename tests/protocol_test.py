@@ -159,7 +159,7 @@ def check_qgene(port):
         elif text == "测试打字":
             assert d1 == "１９９２", "打字 data1=%r" % d1
         elif text == "测试排序":
-            assert d1 == "A||B||C" and d2 == "0", "排序 data1=%r data2=%r" % (d1, d2)
+            assert d1 == "A||B||C" and d2 == "3", "排序 data1=%r data2=%r" % (d1, d2)
         elif text == "测试连线":
             assert d1 == "甲||乙||丙" and d2 == "一||二||三", "连线 data1=%r data2=%r" % (d1, d2)
         elif text == "测试分组":

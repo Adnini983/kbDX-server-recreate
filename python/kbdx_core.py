@@ -154,7 +154,7 @@ def build_qgene(bank_text, mod, p, count, qns):
             d1, d2 = c3, c4
         elif kind == "order":
             d1 = c3
-            d2 = _blank0(e1)
+            d2 = str(len([x for x in c3.split("||") if x != ""]))
         elif kind == "group":
             d1, d2, d3 = c3, c4, e1
         elif kind == "multityping":

@@ -299,7 +299,7 @@ public class KbdxServer {
                     if (e1.startsWith("res/")) { d2 = "0"; d4 = e1; } else d2 = blank0(e1);
                     break;
                 case "line": d1 = c3; d2 = c4; break;
-                case "order": d1 = c3; d2 = blank0(e1); break;
+                case "order": d1 = c3; d2 = String.valueOf(c3.split("\\|\\|", -1).length); break;
                 case "group": d1 = c3; d2 = c4; d3 = e1; break;
                 case "multityping":
                     d1 = c3.replace("||", "/"); d2 = blank0(e1);
